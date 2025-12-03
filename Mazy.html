@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MazyVault Protected</title>
+    <style>
+        :root {
+            --bg-dark: #2b2b2b;
+            --bg-panel: #383838;
+            --bg-input: #424242;
+            --accent: #4fabff;
+            --accent-hover: #3a96e8;
+            --text-main: #f0f0f0;
+            --text-muted: #aaaaaa;
+            --danger: #ff5f5f;
+            --success: #5fff88;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- LOGIN SCREEN --- */
+        #login-screen {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 999;
+        }
+
+        .lock-icon { font-size: 60px; margin-bottom: 20px; color: var(--accent); }
+        
+        .login-box {
+            background: var(--bg-panel);
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            text-align: center;
+            width: 300px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            background: var(--bg-input);
+            border: 1px solid #555;
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        input:focus { border-color: var(--accent); }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            width: 100%;
+            transition: 0.2s;
+        }
+
+        button:hover { background: var(--accent-hover); }
+
+        /* --- MAIN APP LAYOUT --- */
+        #app-container {
+            display: none; /* Hidden until login */
+            flex-direction: row;
+            height: 100%;
+        }
+
+        /* Sidebar */
+        #sidebar {
+            width: 300px;
+            background: var(--bg-panel);
+            border-right: 1px solid #444;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .search-bar {
+            padding: 10px;
+            border-bottom: 1px solid #444;
+        }
+
+        #entry-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .entry-item {
+            padding: 15px 20px;
+            border-bottom: 1px solid #444;
+            cursor: pointer;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+        }
+
+        .entry-item:hover { background: #444; }
+        .entry-item.active { background: var(--accent); color: white; }
+        
+        .entry-icon {
+            width: 32px; height: 32px;
+            background: #555;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        /* Detail View */
+        #detail-view {
+            flex: 1;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-dark);
+        }
+
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 30px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 20px;
+        }
+
+        .field-group { margin-bottom: 20px; position: relative; }
+        .field-label { font-size: 12px; color: var(--text-muted); margin-bottom: 5px; display: block; }
+        .field-value-container { display: flex; gap: 10px; }
+        
+        .copy-btn {
+            width: auto;
+            padding: 10px 15px;
+            background: #444;
+        }
+
+        .actions-bar {
+            margin-top: auto;
+            padding-top: 20px;
+            border-top: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .danger-btn { background: var(--danger); width: auto; }
+        .save-btn { width: auto; }
+
+        /* Footer */
+        .footer-credit {
+            position: fixed;
+            bottom: 10px;
+            right: 20px;
+            font-size: 12px;
+            color: #555;
+            pointer-events: none;
+        }
+
+        /* Toast Notification */
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 4px;
+            padding: 16px;
+            position: fixed;
+            z-index: 1000;
+            left: 50%;
+            bottom: 30px;
+            transform: translateX(-50%);
+            border: 1px solid var(--accent);
+        }
+        #toast.show { visibility: visible; -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+
+        /* Hidden helpers */
+        .hidden { display: none !important; }
+        .blur { filter: blur(5px); }
+    </style>
+</head>
+<body>
+
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen">
+        <div class="lock-icon">🔒</div>
+        <div class="login-box">
+            <h2 style="margin-top:0;">MazinVault</h2>
+            <p style="color:#aaa; font-size:13px; margin-bottom:20px;">Secure Encrypted Storage</p>
+            <input type="password" id="master-password" placeholder="Enter Master Password">
+            <button onclick="app.unlockVault()">Unlock Vault</button>
+            <p id="login-msg" style="color:var(--danger); font-size:12px; margin-top:10px;"></p>
+        </div>
+        <div style="margin-top: 20px; color: #555; font-size: 12px;">
+            Data is encrypted locally. If you lose your password, data is lost forever.
+        </div>
+    </div>
+
+    <!-- APP CONTAINER -->
+    <div id="app-container">
+        <!-- SIDEBAR -->
+        <div id="sidebar">
+            <div class="sidebar-header">
+                <span style="font-weight:bold; font-size:18px;">MazinVault</span>
+                <button onclick="app.createNewEntry()" style="width:30px; height:30px; padding:0; line-height:30px;">+</button>
+            </div>
+            <div class="search-bar">
+                <input type="text" id="search-input" placeholder="Search..." onkeyup="app.filterEntries()">
+            </div>
+            <div id="entry-list">
+                <!-- Entries go here -->
+            </div>
+            <div style="padding:10px; border-top:1px solid #444; font-size:11px; color:#666; text-align:center;">
+                v1.0 • Standalone HTML
+            </div>
+        </div>
+
+        <!-- DETAIL VIEW -->
+        <div id="detail-view">
+            <div id="empty-state" style="margin:auto; text-align:center; color:#555;">
+                <h1>👋</h1>
+                <p>Select an entry to view details</p>
+            </div>
+
+            <div id="entry-form" class="hidden">
+                <div class="detail-header">
+                    <input type="text" id="entry-title" placeholder="Title (e.g. Google)" style="font-size: 24px; background:transparent; border:none; border-bottom: 2px solid #555; padding: 5px;">
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">USERNAME</label>
+                    <div class="field-value-container">
+                        <input type="text" id="entry-user">
+                        <button class="copy-btn" onclick="app.copy('entry-user')">Copy</button>
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">PASSWORD</label>
+                    <div class="field-value-container">
+                        <input type="password" id="entry-pass">
+                        <button class="copy-btn" onclick="app.togglePassVisibility()">👁️</button>
+                        <button class="copy-btn" onclick="app.copy('entry-pass')">Copy</button>
+                        <button class="copy-btn" onclick="app.generatePass()" title="Generate Random">🎲</button>
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">URL / NOTES</label>
+                    <input type="text" id="entry-notes">
+                </div>
+
+                <div class="actions-bar">
+                    <button class="danger-btn" onclick="app.deleteCurrent()">Delete</button>
+                    <button class="save-btn" onclick="app.saveCurrent()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer-credit">Design & Code by <b>Mazin</b></div>
+    <div id="toast">Copied to clipboard!</div>
+
+    <script>
+        const app = {
+            data: [], // Stores decrypted entries
+            key: null, // CryptoKey
+            activeId: null,
+
+            // --- CRYPTO FUNCTIONS ---
+            async getDerivedKey(password, salt) {
+                const enc = new TextEncoder();
+                const keyMaterial = await window.crypto.subtle.importKey(
+                    "raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]
+                );
+                return window.crypto.subtle.deriveKey(
+                    { name: "PBKDF2", salt: enc.encode(salt), iterations: 100000, hash: "SHA-256" },
+                    keyMaterial, { name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]
+                );
+            },
+
+            async encryptData(data, key) {
+                const enc = new TextEncoder();
+                const iv = window.crypto.getRandomValues(new Uint8Array(12));
+                const encrypted = await window.crypto.subtle.encrypt(
+                    { name: "AES-GCM", iv: iv }, key, enc.encode(JSON.stringify(data))
+                );
+                // Pack IV + Encrypted Data into Base64
+                const ivArr = Array.from(iv);
+                const encArr = Array.from(new Uint8Array(encrypted));
+                return btoa(JSON.stringify({ iv: ivArr, data: encArr }));
+            },
+
+            async decryptData(packedStr, key) {
+                try {
+                    const packed = JSON.parse(atob(packedStr));
+                    const iv = new Uint8Array(packed.iv);
+                    const data = new Uint8Array(packed.data);
+                    const decrypted = await window.crypto.subtle.decrypt(
+                        { name: "AES-GCM", iv: iv }, key, data
+                    );
+                    return JSON.parse(new TextDecoder().decode(decrypted));
+                } catch (e) {
+                    throw new Error("Decryption failed");
+                }
+            },
+
+            // --- APP LOGIC ---
+            async unlockVault() {
+                const pass = document.getElementById('master-password').value;
+                const msg = document.getElementById('login-msg');
+                if (!pass) return;
+
+                msg.innerText = "Decrypting...";
+                
+                // We use a fixed salt for simplicity in this single file. 
+                // In production, salt should be random and stored with data.
+                // Since this is a standalone "Quine" style, we derive from username "MazinVault".
+                try {
+                    this.key = await this.getDerivedKey(pass, "MazinVaultSalt");
+                    
+                    const stored = localStorage.getItem("mazin_vault_data");
+                    if (stored) {
+                        try {
+                            this.data = await this.decryptData(stored, this.key);
+                        } catch (e) {
+                            msg.innerText = "Wrong password!";
+                            return;
+                        }
+                    } else {
+                        // New vault
+                        this.data = []; 
+                    }
+
+                    // Success
+                    document.getElementById('login-screen').style.display = 'none';
+                    document.getElementById('app-container').style.display = 'flex';
+                    this.renderList();
+
+                } catch (e) {
+                    console.error(e);
+                    msg.innerText = "Error unlocking vault.";
+                }
+            },
+
+            async saveVault() {
+                if(!this.key) return;
+                const encrypted = await this.encryptData(this.data, this.key);
+                localStorage.setItem("mazin_vault_data", encrypted);
+            },
+
+            // --- UI FUNCTIONS ---
+            renderList() {
+                const list = document.getElementById('entry-list');
+                const filter = document.getElementById('search-input').value.toLowerCase();
+                list.innerHTML = '';
+
+                this.data.forEach(entry => {
+                    if(entry.title.toLowerCase().includes(filter) || entry.user.toLowerCase().includes(filter)) {
+                        const el = document.createElement('div');
+                        el.className = `entry-item ${entry.id === this.activeId ? 'active' : ''}`;
+                        el.onclick = () => this.loadEntry(entry.id);
+                        el.innerHTML = `
+                            <div class="entry-icon">${entry.title.charAt(0) || '?'}</div>
+                            <div>
+                                <div style="font-weight:bold;">${entry.title || 'Untitled'}</div>
+                                <div style="font-size:12px; opacity:0.7;">${entry.user || '...'}</div>
+                            </div>
+                        `;
+                        list.appendChild(el);
+                    }
+                });
+            },
+
+            loadEntry(id) {
+                this.activeId = id;
+                const entry = this.data.find(e => e.id === id);
+                if(!entry) return;
+
+                document.getElementById('empty-state').classList.add('hidden');
+                document.getElementById('entry-form').classList.remove('hidden');
+
+                document.getElementById('entry-title').value = entry.title;
+                document.getElementById('entry-user').value = entry.user;
+                document.getElementById('entry-pass').value = entry.pass;
+                document.getElementById('entry-notes').value = entry.notes;
+                
+                // Highlight sidebar
+                this.renderList();
+            },
+
+            createNewEntry() {
+                const newId = Date.now();
+                const newEntry = { id: newId, title: "New Entry", user: "", pass: "", notes: "" };
+                this.data.unshift(newEntry);
+                this.saveVault();
+                this.loadEntry(newId);
+            },
+
+            saveCurrent() {
+                if(!this.activeId) return;
+                const entry = this.data.find(e => e.id === this.activeId);
+                
+                entry.title = document.getElementById('entry-title').value;
+                entry.user = document.getElementById('entry-user').value;
+                entry.pass = document.getElementById('entry-pass').value;
+                entry.notes = document.getElementById('entry-notes').value;
+
+                this.saveVault();
+                this.renderList();
+                this.showToast("Entry Saved!");
+            },
+
+            deleteCurrent() {
+                if(!confirm("Are you sure you want to delete this entry?")) return;
+                this.data = this.data.filter(e => e.id !== this.activeId);
+                this.activeId = null;
+                this.saveVault();
+                document.getElementById('entry-form').classList.add('hidden');
+                document.getElementById('empty-state').classList.remove('hidden');
+                this.renderList();
+            },
+
+            filterEntries() {
+                this.renderList();
+            },
+
+            // --- UTILS ---
+            togglePassVisibility() {
+                const input = document.getElementById('entry-pass');
+                input.type = input.type === 'password' ? 'text' : 'password';
+            },
+
+            generatePass() {
+                const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
+                let pass = "";
+                for(let i=0; i<16; i++) {
+                    pass += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                document.getElementById('entry-pass').value = pass;
+            },
+
+            copy(elementId) {
+                const val = document.getElementById(elementId).value;
+                navigator.clipboard.writeText(val).then(() => {
+                    this.showToast("Copied!");
+                });
+            },
+
+            showToast(msg) {
+                const x = document.getElementById("toast");
+                x.innerText = msg;
+                x.className = "show";
+                setTimeout(function(){ x.className = x.className.replace("show", ""); }, 3000);
+            }
+        };
+
+        // Handle Enter key on login
+        document.getElementById('master-password').addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                app.unlockVault();
+            }
+        });
+    </script>
+</body>
+</html>
