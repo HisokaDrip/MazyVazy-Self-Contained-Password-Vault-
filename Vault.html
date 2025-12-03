@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MazyVazy (Self-Contained)</title>
+<style>
+    :root { --bg: #1e1e1e; --panel: #252526; --accent: #007acc; --text: #d4d4d4; --danger: #f48771; }
+    body { font-family: sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; margin: 0; overflow: hidden; }
+    
+    /* Login */
+    #login-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 99; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .box { background: var(--panel); padding: 40px; border-radius: 8px; border: 1px solid #333; text-align: center; width: 300px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    input { width: 100%; padding: 10px; margin: 10px 0; background: #3c3c3c; border: 1px solid #555; color: white; box-sizing: border-box; }
+    button { width: 100%; padding: 10px; background: var(--accent); color: white; border: none; cursor: pointer; font-weight: bold; margin-top: 10px; }
+    button:hover { filter: brightness(1.1); }
+    button.danger { background: var(--danger); color: #000; }
+
+    /* Main App */
+    #app { display: none; width: 100%; height: 100%; }
+    #sidebar { width: 250px; background: var(--panel); border-right: 1px solid #333; display: flex; flex-direction: column; }
+    #list { flex: 1; overflow-y: auto; }
+    .item { padding: 10px 15px; border-bottom: 1px solid #333; cursor: pointer; }
+    .item:hover { background: #333; }
+    .item.active { background: var(--accent); color: white; }
+    
+    #main { flex: 1; padding: 40px; display: flex; flex-direction: column; gap: 15px; }
+    .row { display: flex; gap: 10px; }
+    label { font-size: 12px; color: #888; display: block; margin-bottom: 5px; }
+    .copy-btn { width: auto; background: #444; margin: 0; padding: 0 15px; }
+    
+    #save-notice { position: fixed; bottom: 20px; right: 20px; background: var(--accent); padding: 10px 20px; border-radius: 4px; display: none; box-shadow: 0 5px 15px black; }
+</style>
+</head>
+<body>
+
+<!-- STORAGE CONTAINER: This is where the encrypted blob lives inside the file -->
+<div id="vault-data" style="display:none;"></div>
+
+<!-- LOGIN -->
+<div id="login-overlay">
+    <div class="box">
+        <h2>MazyVazy</h2>
+        <p style="font-size:12px; color:#aaa;">File-Based Storage</p>
+        <input type="password" id="pwd" placeholder="Master Password">
+        <button onclick="app.unlock()">Unlock</button>
+        <p id="msg" style="color:var(--danger); font-size:12px; margin-top:10px;"></p>
+    </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+    <div id="sidebar">
+        <div style="padding:15px; font-weight:bold; border-bottom:1px solid #333;">My Passwords</div>
+        <div id="list"></div>
+        <button onclick="app.addEntry()" style="margin:0; border-radius:0;">+ New Entry</button>
+    </div>
+    <div id="main">
+        <div id="editor" style="display:none;">
+            <input type="text" id="e-title" placeholder="Title (e.g. Gmail)" style="font-size:20px; background:transparent; border:none; border-bottom:1px solid #555;">
+            
+            <div>
+                <label>USERNAME</label>
+                <div class="row"><input type="text" id="e-user"><button class="copy-btn" onclick="app.copy('e-user')">Copy</button></div>
+            </div>
+            
+            <div>
+                <label>PASSWORD</label>
+                <div class="row">
+                    <input type="password" id="e-pass">
+                    <button class="copy-btn" onclick="app.toggleEye()">👁️</button>
+                    <button class="copy-btn" onclick="app.copy('e-pass')">Copy</button>
+                    <button class="copy-btn" onclick="app.genPass()">🎲</button>
+                </div>
+            </div>
+
+            <div>
+                <label>NOTES</label>
+                <input type="text" id="e-notes">
+            </div>
+
+            <div style="margin-top:auto; display:flex; gap:10px;">
+                <button onclick="app.saveChanges()">💾 Save Changes</button>
+                <button class="danger" onclick="app.deleteEntry()">Delete</button>
+            </div>
+        </div>
+        <div id="placeholder" style="margin:auto; color:#555;">Select an entry</div>
+    </div>
+</div>
+
+<div id="save-notice">Vault Updated! Re-downloading file...</div>
+
+<script>
+const app = {
+    data: [],
+    key: null,
+    activeId: null,
+
+    // --- CRYPTO (AES-GCM) ---
+    async deriveKey(password) {
+        const enc = new TextEncoder();
+        const keyMat = await crypto.subtle.importKey("raw", enc.encode(password), {name:"PBKDF2"}, false, ["deriveKey"]);
+        return crypto.subtle.deriveKey({name:"PBKDF2", salt: enc.encode("MazinFixedSalt"), iterations:100000, hash:"SHA-256"}, keyMat, {name:"AES-GCM", length:256}, true, ["encrypt","decrypt"]);
+    },
+    async encrypt(dataObj) {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(JSON.stringify(dataObj));
+        const encrypted = await crypto.subtle.encrypt({name:"AES-GCM", iv:iv}, this.key, encoded);
+        return btoa(JSON.stringify({ iv: Array.from(iv), data: Array.from(new Uint8Array(encrypted)) }));
+    },
+    async decrypt(str) {
+        const raw = JSON.parse(atob(str));
+        const iv = new Uint8Array(raw.iv);
+        const data = new Uint8Array(raw.data);
+        const decrypted = await crypto.subtle.decrypt({name:"AES-GCM", iv:iv}, this.key, data);
+        return JSON.parse(new TextDecoder().decode(decrypted));
+    },
+
+    // --- CORE LOGIC ---
+    async unlock() {
+        const pwd = document.getElementById('pwd').value;
+        try {
+            this.key = await this.deriveKey(pwd);
+            const embedded = document.getElementById('vault-data').innerText.trim();
+            
+            if(embedded) {
+                // Try to decrypt embedded data
+                this.data = await this.decrypt(embedded);
+            } else {
+                // First time use
+                this.data = [];
+            }
+            
+            document.getElementById('login-overlay').style.display = 'none';
+            document.getElementById('app').style.display = 'flex';
+            this.render();
+        } catch(e) {
+            document.getElementById('msg').innerText = "Wrong password or corrupted data.";
+            console.error(e);
+        }
+    },
+
+    // --- THE "SELF-SAVING" MAGIC ---
+    async downloadUpdate() {
+        // 1. Encrypt current data state
+        const cipherText = await this.encrypt(this.data);
+        
+        // 2. Get the full HTML of this current page
+        let html = document.documentElement.outerHTML;
+        
+        // 3. Regex to replace the content inside <div id="vault-data">...</div>
+        // We use a safe regex that finds the div and replaces strictly what is inside.
+        const regex = /(<div id="vault-data" style="display:none;">)(.*?)(<\/div>)/s;
+        
+        // 4. Inject the new encrypted string
+        const newHtml = html.replace(regex, `$1${cipherText}$3`);
+        
+        // 5. Trigger Download
+        const blob = new Blob([newHtml], {type: "text/html"});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = "MazinVault.html"; 
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        // UI Feedback
+        const notice = document.getElementById('save-notice');
+        notice.style.display = 'block';
+        setTimeout(() => notice.style.display='none', 4000);
+    },
+
+    // --- CRUD ---
+    render() {
+        const list = document.getElementById('list');
+        list.innerHTML = '';
+        this.data.forEach(e => {
+            const d = document.createElement('div');
+            d.className = `item ${e.id == this.activeId ? 'active' : ''}`;
+            d.innerText = e.title;
+            d.onclick = () => this.load(e.id);
+            list.appendChild(d);
+        });
+    },
+    load(id) {
+        this.activeId = id;
+        const e = this.data.find(x => x.id === id);
+        document.getElementById('editor').style.display = 'block';
+        document.getElementById('placeholder').style.display = 'none';
+        document.getElementById('e-title').value = e.title;
+        document.getElementById('e-user').value = e.user;
+        document.getElementById('e-pass').value = e.pass;
+        document.getElementById('e-notes').value = e.notes;
+        this.render();
+    },
+    addEntry() {
+        const id = Date.now();
+        this.data.unshift({id, title:"New Account", user:"", pass:"", notes:""});
+        this.load(id);
+    },
+    async saveChanges() {
+        if(!this.activeId) return;
+        const e = this.data.find(x => x.id === this.activeId);
+        e.title = document.getElementById('e-title').value;
+        e.user = document.getElementById('e-user').value;
+        e.pass = document.getElementById('e-pass').value;
+        e.notes = document.getElementById('e-notes').value;
+        
+        // Automatically download the updated file
+        await this.downloadUpdate();
+        this.render();
+    },
+    async deleteEntry() {
+        if(!confirm("Delete this entry?")) return;
+        this.data = this.data.filter(x => x.id !== this.activeId);
+        this.activeId = null;
+        document.getElementById('editor').style.display = 'none';
+        document.getElementById('placeholder').style.display = 'block';
+        await this.downloadUpdate();
+        this.render();
+    },
+
+    // --- UTILS ---
+    copy(id) { navigator.clipboard.writeText(document.getElementById(id).value); },
+    toggleEye() { 
+        const el = document.getElementById('e-pass'); 
+        el.type = el.type==='password'?'text':'password'; 
+    },
+    genPass() {
+        const c = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$";
+        let p = ""; for(let i=0;i<16;i++) p+=c[Math.floor(Math.random()*c.length)];
+        document.getElementById('e-pass').value = p;
+    }
+};
+
+// Enter key to login
+document.getElementById('pwd').addEventListener("keypress", e => { if(e.key==="Enter") app.unlock(); });
+</script>
+</body>
+</html>
